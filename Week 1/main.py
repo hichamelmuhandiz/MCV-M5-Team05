@@ -27,10 +27,11 @@ test_data_dir= root_dir + '/test'
 img_width = 224
 img_height=224
 batch_size=4
-epochs = 5
-# epochs = 200
+# epochs = 20
+epochs = 500
 
 ### CREATE DATASET
+# TODO - Put keras transformations
 transformation = transform.Compose([
     # you can add other transformations in this list
     ToTensor()
@@ -147,6 +148,7 @@ for epoch in range(epochs):  # loop over the dataset multiple times
             # calculate outputs by running images through the network
             outputs = net(images)
             
+            # TODO - Check val loss is correct            
             loss = criterion(outputs, labels)
             running_loss =+ loss.item() * images.size(0)
             
@@ -154,7 +156,8 @@ for epoch in range(epochs):  # loop over the dataset multiple times
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-            
+        
+        print(running_loss / len(valid_dataset))
         val_accuracies.append(100 * correct // total)
         val_losses.append(running_loss / len(valid_dataset))
         
@@ -178,12 +181,13 @@ plt.legend(loc='best',fontsize=14)
 plt.savefig('./MCV-M5-Team05/Week 1/accuracy.jpg', transparent=False)
 plt.close()
 
+# TODO - Check why loss is 0.04, why had we to change the range of ylim to (0,1) instead (0,4)
 plt.figure(figsize=(10,10),dpi=150)
 plt.plot(np.arange(0,epochs,offset),train_losses[::offset], marker='o', color='orange',label='Train')
 plt.plot(np.arange(0,epochs,offset),val_losses[::offset], marker='o', color='purple',label='Validation')
 plt.grid(color='0.75', linestyle='-', linewidth=0.5)
 plt.title('Loss',fontsize=25)
-plt.ylim(0, 4)
+plt.ylim(0, 1)
 plt.xticks(np.arange(0,epochs+offset,offset),fontsize=12)
 plt.yticks(fontsize=12)
 plt.ylabel('Loss',fontsize=17)
