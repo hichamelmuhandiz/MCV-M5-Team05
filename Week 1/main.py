@@ -11,6 +11,7 @@ from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
 import sys
 import torch.optim as optim
+import numpy as np
 
 print("CUDA is available:", torch.cuda.is_available())
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -98,9 +99,15 @@ criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adadelta(net.parameters(), lr=0.1)
 
 ### TRAIN MODEL
+train_accuracies = []
+val_accuracies = []
+train_losses = []
+val_losses = []
 for epoch in range(epochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
+    correct = 0
+    total = 0
     for i, data in enumerate(train_loader, 0):
         # get the inputs; data is a list of [inputs, labels]
         inputs, labels = data
@@ -116,29 +123,71 @@ for epoch in range(epochs):  # loop over the dataset multiple times
         loss.backward()
         optimizer.step()
 
-        # print statistics
-        running_loss += loss.item()
-        if i % 49 == 48:    # print every 49 mini-batches
-            print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 2000:.3f}')
-            running_loss = 0.0
-
-print('Finished Training')
-
-### TEST MODEL
-correct = 0
-total = 0
-# since we're not training, we don't need to calculate the gradients for our outputs
-with torch.no_grad():
-    for data in valid_loader:
-        images, labels = data
-        images = images.to(device)
-        labels = labels.to(device)
-        
-        # calculate outputs by running images through the network
-        outputs = net(images)
-        # the class with the highest energy is what we choose as prediction
+        # print statistics        
+        running_loss =+ loss.item() * inputs.size(0)
+            
+        # save train accuracy and loss
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
+    
+    train_losses.append(running_loss / len(train_dataset))
+    train_accuracies.append(100 * correct // total)
+    
+    running_loss = 0.0
+    correct = 0
+    total = 0
+    # save validation accuracy and loss
+    with torch.no_grad():
+        for data in valid_loader:
+            images, labels = data
+            images = images.to(device)
+            labels = labels.to(device)
+            
+            # calculate outputs by running images through the network
+            outputs = net(images)
+            
+            loss = criterion(outputs, labels)
+            running_loss =+ loss.item() * images.size(0)
+            
+            # the class with the highest energy is what we choose as prediction
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+        val_accuracies.append(100 * correct // total)
+        val_losses.append(running_loss / len(valid_dataset))
+        
+    print('Epoch: %d, train/val loss: %.3f/%.3f' %(epoch, train_losses[-1], val_losses[-1]))
+    
+print('Finished Training')
 
-print(f'Accuracy of the network on the test images: {100 * correct // total} %')
+print(f'Accuracy of the network on the test images: {val_accuracies[-1]} %')
+
+offset = 1
+plt.figure(figsize=(10,10),dpi=150)
+plt.plot(np.arange(0,epochs,offset),train_accuracies[::offset], marker='o', color='orange',label='Train')
+plt.plot(np.arange(0,epochs,offset),val_accuracies[::offset], marker='o', color='purple',label='Validation')
+plt.grid(color='0.75', linestyle='-', linewidth=0.5)
+plt.title('Accuracy',fontsize=25)
+plt.xticks(np.arange(0,epochs+offset,offset),fontsize=12)
+plt.yticks(fontsize=12)
+plt.ylabel('Accuracy',fontsize=17)
+plt.xlabel('Epoch',fontsize=17)
+plt.legend(loc='best',fontsize=14)
+plt.savefig('./MCV-M5-Team05/Week 1/accuracy.jpg', transparent=False)
+plt.close()
+
+plt.figure(figsize=(10,10),dpi=150)
+plt.plot(np.arange(0,epochs,offset),train_losses[::offset], marker='o', color='orange',label='Train')
+plt.plot(np.arange(0,epochs,offset),val_losses[::offset], marker='o', color='purple',label='Validation')
+plt.grid(color='0.75', linestyle='-', linewidth=0.5)
+plt.title('Loss',fontsize=25)
+plt.ylim(0, 4)
+plt.xticks(np.arange(0,epochs+offset,offset),fontsize=12)
+plt.yticks(fontsize=12)
+plt.ylabel('Loss',fontsize=17)
+plt.xlabel('Epoch',fontsize=17)
+plt.legend(loc='best',fontsize=14)
+plt.savefig('./MCV-M5-Team05/Week 1/loss.jpg', transparent=False)
+plt.close()
