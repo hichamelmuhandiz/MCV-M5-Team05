@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 import sys
 import torch.optim as optim
 
-print("Cuda is available:", torch.cuda.is_available())
+print("CUDA is available:", torch.cuda.is_available())
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ### HYPERPARAMETERS
 train_set = 'MIT_small_train_1'
@@ -25,7 +26,7 @@ test_data_dir= root_dir + '/test'
 img_width = 224
 img_height=224
 batch_size=4
-epochs = 2
+epochs = 5
 # epochs = 200
 
 ### CREATE DATASET
@@ -91,8 +92,10 @@ class Net(nn.Module):
         return x
 
 net = Net()
+net.to(device)
+
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+optimizer = optim.Adadelta(net.parameters(), lr=0.1)
 
 ### TRAIN MODEL
 for epoch in range(epochs):  # loop over the dataset multiple times
@@ -101,7 +104,9 @@ for epoch in range(epochs):  # loop over the dataset multiple times
     for i, data in enumerate(train_loader, 0):
         # get the inputs; data is a list of [inputs, labels]
         inputs, labels = data
-
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        
         # zero the parameter gradients
         optimizer.zero_grad()
 
@@ -126,6 +131,9 @@ total = 0
 with torch.no_grad():
     for data in valid_loader:
         images, labels = data
+        images = images.to(device)
+        labels = labels.to(device)
+        
         # calculate outputs by running images through the network
         outputs = net(images)
         # the class with the highest energy is what we choose as prediction
