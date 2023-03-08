@@ -81,17 +81,12 @@ class Net(nn.Module):
             nn.Conv2d(3, 32, kernel_size=3, stride=2),
             FireUnit(32, 8, 16, 16),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((8, 1)),
-            nn.Linear(1024, 8)
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(32, 8)
         )
         
     def forward(self, x):
-        # x = self.pool(F.relu(self.conv1(x)))
-        # x = self.pool(F.relu(self.conv2(x)))
-        # x = torch.flatten(x, 1) # flatten all dimensions except batch
-        # x = F.relu(self.fc1(x))
-        # x = F.relu(self.fc2(x))
-        # x = self.fc3(x)
         x = self.classifier(x)
         return x
 
