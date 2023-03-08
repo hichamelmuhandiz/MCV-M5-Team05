@@ -25,8 +25,8 @@ test_data_dir= root_dir + '/test'
 img_width = 224
 img_height=224
 batch_size=4
-# epochs = 2
-epochs = 50
+epochs = 2
+# epochs = 200
 
 ### CREATE DATASET
 transformation = transform.Compose([
@@ -55,25 +55,45 @@ label = train_labels[0]
 print(f"Label: {train_dataset.classes[label]}")
 
 ### CREATE MODEL
+class FireUnit(nn.Module):
+    def __init__(self, inplanes: int, squeeze_planes: int, expand1x1_planes: int, expand3x3_planes: int) -> None:
+        super().__init__()
+        self.inplanes = inplanes
+        self.squeeze = nn.Conv2d(inplanes, squeeze_planes, kernel_size=1)
+        self.squeeze_activation = nn.ReLU(inplace=True)
+        self.expand1x1 = nn.Conv2d(squeeze_planes, expand1x1_planes, kernel_size=1)
+        self.expand1x1_activation = nn.ReLU(inplace=True)
+        self.expand3x3 = nn.Conv2d(squeeze_planes, expand3x3_planes, kernel_size=3, padding=1)
+        self.expand3x3_activation = nn.ReLU(inplace=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.squeeze_activation(self.squeeze(x))
+        return torch.cat(
+            [self.expand1x1_activation(self.expand1x1(x)), self.expand3x3_activation(self.expand3x3(x))], 1
+        )
+        
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(59536, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 8)
-
+        
+        # final_conv = nn.Conv2d(512, self.num_classes, kernel_size=1)
+        self.classifier = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=2),
+            FireUnit(32, 8, 16, 16),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d((8, 1)),
+            nn.Linear(1024, 8)
+        )
+        
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = torch.flatten(x, 1) # flatten all dimensions except batch
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        # x = self.pool(F.relu(self.conv1(x)))
+        # x = self.pool(F.relu(self.conv2(x)))
+        # x = torch.flatten(x, 1) # flatten all dimensions except batch
+        # x = F.relu(self.fc1(x))
+        # x = F.relu(self.fc2(x))
+        # x = self.fc3(x)
+        x = self.classifier(x)
         return x
-
 
 net = Net()
 criterion = nn.CrossEntropyLoss()
