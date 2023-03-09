@@ -20,7 +20,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ### HYPERPARAMETERS
 train_set = 'MIT_small_train_1'
-root_dir = '../datasets/' + train_set
+root_dir = './MCV-M5-Team05/datasets/' + train_set
 
 train_data_dir= root_dir + '/train'
 val_data_dir= root_dir + '/test'
@@ -188,7 +188,7 @@ print('Finished Training')
 
 print(f'Accuracy of the network on the test images: {val_accuracies[-1]} %')
 
-offset = 10
+offset = 1
 plt.figure(figsize=(10,10),dpi=150)
 plt.plot(np.arange(0,epochs,offset),train_accuracies[::offset], marker='o', color='orange',label='Train')
 plt.plot(np.arange(0,epochs,offset),val_accuracies[::offset], marker='o', color='purple',label='Validation')
