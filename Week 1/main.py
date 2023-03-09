@@ -108,7 +108,7 @@ class Net(nn.Module):
 net = Net()
 net.to(device)
 
-print(summary(net, (3, 256, 256)))
+print(summary(net, (3, 224, 224)))
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adadelta(net.parameters(), lr=0.1)
 
