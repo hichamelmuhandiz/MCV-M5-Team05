@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import sys
 import torch.optim as optim
 import numpy as np
+from torchsummary import summary
 
 print("CUDA is available:", torch.cuda.is_available())
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -28,7 +29,7 @@ img_width = 224
 img_height=224
 batch_size=4
 # epochs = 20
-epochs = 500
+epochs = 10
 
 ### CREATE DATASET
 # TODO - Put keras transformations
@@ -79,7 +80,6 @@ class Net(nn.Module):
     def __init__(self):
         super().__init__()
         
-        # final_conv = nn.Conv2d(512, self.num_classes, kernel_size=1)
         self.classifier = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=2),
             FireUnit(32, 8, 16, 16),
@@ -96,6 +96,7 @@ class Net(nn.Module):
 net = Net()
 net.to(device)
 
+print(summary(net, (3, 256, 256)))
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adadelta(net.parameters(), lr=0.1)
 
@@ -123,10 +124,11 @@ for epoch in range(epochs):  # loop over the dataset multiple times
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
+        
 
         # print statistics        
-        running_loss =+ loss.item() * inputs.size(0)
-            
+        running_loss += loss.item() * inputs.size(0)
+        
         # save train accuracy and loss
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
@@ -150,14 +152,14 @@ for epoch in range(epochs):  # loop over the dataset multiple times
             
             # TODO - Check val loss is correct            
             loss = criterion(outputs, labels)
-            running_loss =+ loss.item() * images.size(0)
+            running_loss += loss.item() * images.size(0)
+            
             
             # the class with the highest energy is what we choose as prediction
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
         
-        print(running_loss / len(valid_dataset))
         val_accuracies.append(100 * correct // total)
         val_losses.append(running_loss / len(valid_dataset))
         
@@ -167,7 +169,7 @@ print('Finished Training')
 
 print(f'Accuracy of the network on the test images: {val_accuracies[-1]} %')
 
-offset = 1
+offset = 10
 plt.figure(figsize=(10,10),dpi=150)
 plt.plot(np.arange(0,epochs,offset),train_accuracies[::offset], marker='o', color='orange',label='Train')
 plt.plot(np.arange(0,epochs,offset),val_accuracies[::offset], marker='o', color='purple',label='Validation')
@@ -187,7 +189,7 @@ plt.plot(np.arange(0,epochs,offset),train_losses[::offset], marker='o', color='o
 plt.plot(np.arange(0,epochs,offset),val_losses[::offset], marker='o', color='purple',label='Validation')
 plt.grid(color='0.75', linestyle='-', linewidth=0.5)
 plt.title('Loss',fontsize=25)
-plt.ylim(0, 1)
+plt.ylim(0, 4)
 plt.xticks(np.arange(0,epochs+offset,offset),fontsize=12)
 plt.yticks(fontsize=12)
 plt.ylabel('Loss',fontsize=17)
