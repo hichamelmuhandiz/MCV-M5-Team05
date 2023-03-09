@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import sys
 import torch.optim as optim
 import numpy as np
+import wandb
 from torchsummary import summary
 
 print("CUDA is available:", torch.cuda.is_available())
@@ -31,15 +32,26 @@ batch_size=4
 # epochs = 20
 epochs = 10
 
+#initialise wandb
+log_wandb = False    #whether or not to log with wandb
+if log_wandb: writer = wandb.init(name="test", project="week-1", config={"lr":0.1})
+
 ### CREATE DATASET
 # TODO - Put keras transformations
-transformation = transform.Compose([
+transformation_train = transform.Compose([
+    # you can add other transformations in this list
+    transform.RandomRotation(90),
+    transform.RandomHorizontalFlip(),
+    transform.RandomVerticalFlip(),
+    ToTensor()
+])
+# no need to use data augmentation in validation
+transformation_val = transform.Compose([
     # you can add other transformations in this list
     ToTensor()
 ])
-
-train_dataset = torchvision.datasets.ImageFolder(root="MCV-M5-Team05/datasets/MIT_small_train_1/train", transform=transformation)
-valid_dataset = torchvision.datasets.ImageFolder(root="MCV-M5-Team05/datasets/MIT_small_train_1/test", transform=transformation)
+train_dataset = torchvision.datasets.ImageFolder(root=train_data_dir, transform=transformation_train)
+valid_dataset = torchvision.datasets.ImageFolder(root=test_data_dir,  transform=transformation_val)
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
@@ -100,6 +112,9 @@ print(summary(net, (3, 256, 256)))
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adadelta(net.parameters(), lr=0.1)
 
+#watch model with wandb
+if log_wandb: wandb.watch(net)
+
 ### TRAIN MODEL
 train_accuracies = []
 val_accuracies = []
@@ -134,9 +149,10 @@ for epoch in range(epochs):  # loop over the dataset multiple times
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
     
-    train_losses.append(running_loss / len(train_dataset))
-    train_accuracies.append(100 * correct // total)
-    
+    train_acc = 100 * correct // total
+    train_loss = running_loss / len(train_dataset)
+    train_losses.append(train_loss)
+    train_accuracies.append(train_acc)
     running_loss = 0.0
     correct = 0
     total = 0
@@ -160,10 +176,13 @@ for epoch in range(epochs):  # loop over the dataset multiple times
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
         
-        val_accuracies.append(100 * correct // total)
-        val_losses.append(running_loss / len(valid_dataset))
-        
-    print('Epoch: %d, train/val loss: %.3f/%.3f' %(epoch, train_losses[-1], val_losses[-1]))
+        val_acc = 100 * correct // total
+        val_loss = running_loss / len(valid_dataset)
+        val_accuracies.append(val_acc)
+        val_losses.append(val_loss)
+    
+    if log_wandb: writer.log({"Loss/train": train_losses[-1], "Accuracy/train":train_accuracies[-1]/100,"Loss/val": val_losses[-1], "Accuracy/val":val_accuracies[-1]/100})
+    print('Epoch: %d, train/val loss: %.3f/%.3f, train/val acc: %.3f/%.3f' %(epoch, train_losses[-1], val_losses[-1], train_accuracies[-1]/100, val_accuracies[-1]/100))
     
 print('Finished Training')
 
