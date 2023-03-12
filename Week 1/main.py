@@ -14,13 +14,18 @@ import torch.optim as optim
 import numpy as np
 import wandb
 from torchsummary import summary
+import hiddenlayer as hl
 
+# We use CUDA if possible
 print("CUDA is available:", torch.cuda.is_available())
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ### HYPERPARAMETERS
 train_set = 'MIT_small_train_1'
-root_dir = './MCV-M5-Team05/datasets/' + train_set
+# train_set = 'MIT_SPLIT'
+
+print('Training set is:', train_set)
+root_dir = './datasets/' + train_set
 
 train_data_dir= root_dir + '/train'
 val_data_dir= root_dir + '/test'
@@ -29,15 +34,13 @@ test_data_dir= root_dir + '/test'
 img_width = 224
 img_height=224
 batch_size=4
-# epochs = 20
 epochs = 10
 
-#initialise wandb
+# Initialise wandb
 log_wandb = False    #whether or not to log with wandb
 if log_wandb: writer = wandb.init(name="test", project="week-1", config={"lr":0.1})
 
 ### CREATE DATASET
-# TODO - Put keras transformations
 transformation_train = transform.Compose([
     # you can add other transformations in this list
     transform.RandomRotation(90),
@@ -45,29 +48,30 @@ transformation_train = transform.Compose([
     transform.RandomVerticalFlip(),
     ToTensor()
 ])
-# no need to use data augmentation in validation
+
+# No need to use data augmentation in validation
 transformation_val = transform.Compose([
     # you can add other transformations in this list
     ToTensor()
 ])
+
 train_dataset = torchvision.datasets.ImageFolder(root=train_data_dir, transform=transformation_train)
 valid_dataset = torchvision.datasets.ImageFolder(root=test_data_dir,  transform=transformation_val)
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
 
-
 print('Classes: ', train_dataset.classes)
 
-## Show a sample of our training set
+# Show a sample of our training set
 train_features, train_labels = next(iter(train_loader))
 print(f"Feature batch shape: {train_features.size()}")
 print(f"Labels batch shape: {train_labels.size()}")
 img = train_features[0].squeeze()
 img = torch.permute(img, (1,2,0))
 label = train_labels[0]
-# plt.imshow(img, cmap="gray")
-# plt.show()
+plt.imshow(img, cmap="gray")
+plt.show()
 print(f"Label: {train_dataset.classes[label]}")
 
 ### CREATE MODEL
@@ -105,12 +109,15 @@ class Net(nn.Module):
         x = self.classifier(x)
         return x
 
+
 net = Net()
 net.to(device)
 
 print(summary(net, (3, 224, 224)))
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adadelta(net.parameters(), lr=0.1)
+
+# optimizer = optim.Adadelta(net.parameters(), lr=0.1)
+optimizer = torch.optim.SGD(net.parameters(), lr=0.01)
 
 #watch model with wandb
 if log_wandb: wandb.watch(net)
@@ -156,6 +163,9 @@ for epoch in range(epochs):  # loop over the dataset multiple times
     running_loss = 0.0
     correct = 0
     total = 0
+    
+    print('Epoch: %d, train loss: %.3f, train acc: %.3f' %(epoch, train_losses[-1], train_accuracies[-1]/100))
+    
     # save validation accuracy and loss
     with torch.no_grad():
         for data in valid_loader:
@@ -186,6 +196,7 @@ for epoch in range(epochs):  # loop over the dataset multiple times
     
 print('Finished Training')
 
+
 print(f'Accuracy of the network on the test images: {val_accuracies[-1]} %')
 
 offset = 1
@@ -199,10 +210,9 @@ plt.yticks(fontsize=12)
 plt.ylabel('Accuracy',fontsize=17)
 plt.xlabel('Epoch',fontsize=17)
 plt.legend(loc='best',fontsize=14)
-plt.savefig('./MCV-M5-Team05/Week 1/accuracy.jpg', transparent=False)
+plt.savefig('./Week 1/accuracy.jpg', transparent=False)
 plt.close()
 
-# TODO - Check why loss is 0.04, why had we to change the range of ylim to (0,1) instead (0,4)
 plt.figure(figsize=(10,10),dpi=150)
 plt.plot(np.arange(0,epochs,offset),train_losses[::offset], marker='o', color='orange',label='Train')
 plt.plot(np.arange(0,epochs,offset),val_losses[::offset], marker='o', color='purple',label='Validation')
@@ -214,5 +224,5 @@ plt.yticks(fontsize=12)
 plt.ylabel('Loss',fontsize=17)
 plt.xlabel('Epoch',fontsize=17)
 plt.legend(loc='best',fontsize=14)
-plt.savefig('./MCV-M5-Team05/Week 1/loss.jpg', transparent=False)
+plt.savefig('./Week 1/loss.jpg', transparent=False)
 plt.close()

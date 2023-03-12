@@ -9,12 +9,14 @@ import os
 import glob
 import re
 
+import wandb
+from wandb.keras import WandbMetricsLogger
 
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 
 ### HYPERPARAMETERS
-train_set = 'MIT_small_train_1'
-root_dir = '../datasets' + train_set
+train_set = 'MIT_SPLIT'
+root_dir = './datasets/' + train_set
 
 train_data_dir= root_dir + '/train'
 val_data_dir= root_dir + '/test'
@@ -25,13 +27,19 @@ img_height=224
 batch_size=4
 epochs = 1000
 
+#initialise wandb
+log_wandb = False    #whether or not to log with wandb
+if log_wandb: writer = wandb.init(name="keras_smallMIT_SPLIT_batch4", project="week-1", config={"lr":0.1})
 ### CREATE DATASET
-train_datagen = ImageDataGenerator()
+train_datagen = ImageDataGenerator(
+    horizontal_flip=True,
+  vertical_flip=True,
+  rotation_range=90,)
 
 itr = train_datagen.flow_from_directory(
 train_data_dir,
 target_size=(img_width, img_height),
-batch_size=400,
+batch_size=4,
 class_mode='categorical')
 itr.reset()
 X_train, y_train = itr.next()
@@ -41,7 +49,7 @@ test_datagen = ImageDataGenerator()
 itr = test_datagen.flow_from_directory(
 test_data_dir,
 target_size=(img_width, img_height),
-batch_size=400,
+batch_size=4,
 class_mode='categorical')
 itr.reset()
 X_test, y_test = itr.next()
@@ -58,7 +66,7 @@ test_datagen_tmp = ImageDataGenerator(
 
 
 
-train_generator = train_datagen.flow_from_directory(train_data_dir,
+train_generator = train_datagen_tmp.flow_from_directory(train_data_dir,
         target_size=(img_width, img_height),
         batch_size=batch_size,
         class_mode='categorical',
@@ -92,19 +100,13 @@ print(model.count_params())
 loss = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0)
 opt = tf.keras.optimizers.Adadelta(learning_rate=0.1)
 model.compile(loss=loss, optimizer=opt, metrics=['accuracy'])
-history = model.fit(train_generator, batch_size=1, epochs=epochs, validation_data=validation_generator)
 
+if log_wandb:
+    history = model.fit(train_generator, batch_size=batch_size, epochs=epochs, validation_data=validation_generator,callbacks=[WandbMetricsLogger()])
+else:
+    history = model.fit(train_generator, batch_size=batch_size, epochs=epochs, validation_data=validation_generator)
 
 # SAVING RESULTS
-list_of_files = glob.glob('./outputs/graphs/accuracy_mlp*.jpg') # * means all if need specific format then *.csv
-if len(list_of_files) > 1:
-  latest_file = max(list_of_files, key=os.path.getctime)
-  latest_file = os.path.basename(latest_file)
-  file_index = int(re.search(r'\d+', latest_file).group())
-  file_index += 1
-else:
-  file_index = 1
-
 offset = 100
 plt.figure(figsize=(10,10),dpi=150)
 plt.plot(np.arange(0,epochs,offset),history.history['accuracy'][::offset], marker='o', color='orange',label='Train')
@@ -116,28 +118,8 @@ plt.yticks(fontsize=12)
 plt.ylabel('Accuracy',fontsize=17)
 plt.xlabel('Epoch',fontsize=17)
 plt.legend(loc='best',fontsize=14)
-plt.savefig('./outputs/graphs/accuracy_mlp'+str(file_index)+'.jpg',transparent=False)
+plt.savefig('./Week 1/accuracy_keras.jpg',transparent=False)
 plt.close()
-
-plt.figure(figsize=(10,10),dpi=150)
-plt.plot(np.arange(0,epochs,offset),history.history['loss'][::offset], marker='o', color='orange',label='Train')
-plt.plot(np.arange(0,epochs,offset),history.history['val_loss'][::offset], marker='o', color='purple',label='Validation')
-plt.grid(color='0.75', linestyle='-', linewidth=0.5)
-plt.title('Loss',fontsize=25)
-plt.ylim(0, 4)
-plt.xticks(np.arange(0,epochs+offset,offset),fontsize=12)
-plt.yticks(fontsize=12)
-plt.ylabel('Loss',fontsize=17)
-plt.xlabel('Epoch',fontsize=17)
-plt.legend(loc='best',fontsize=14)
-plt.savefig('./outputs/graphs/loss_mlp'+str(file_index)+'.jpg',transparent=False)
-plt.close()
-
-list_of_files = glob.glob('./outputs/graphs/loss_mlp*.jpg') # * means all if need specific format then *.csv
-latest_file = max(list_of_files, key=os.path.getctime)
-latest_file = os.path.basename(latest_file)
-file_index = int(re.search(r'\d+', latest_file).group())
-file_index += 1
 
 plt.figure(figsize=(10,10),dpi=150)
 plt.plot(np.arange(0,epochs,offset),history.history['loss'][::offset], marker='o', color='orange',label='Train')
@@ -149,5 +131,5 @@ plt.yticks(fontsize=12)
 plt.ylabel('Loss',fontsize=17)
 plt.xlabel('Epoch',fontsize=17)
 plt.legend(loc='best',fontsize=14)
-plt.savefig('./outputs/graphs/loss_mlp'+str(file_index)+'.jpg',transparent=False)
+plt.savefig('./Week 1/loss_keras.jpg',transparent=False)
 plt.close()

@@ -4,6 +4,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import sys
 import tensorflow_model_optimization as tfmot
 
+
 # Residual units from the ResNet paper
 class ResidualUnit(keras.layers.Layer):
     def __init__(self, filters, strides=1, activation='relu', **kwargs):
