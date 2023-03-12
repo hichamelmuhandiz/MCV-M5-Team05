@@ -1,7 +1,6 @@
 # MCV-M5-Team05
 Team 5 repository for M5 subject in MCV
 
-=======
 # Team 5 repository for M5 Project - Master in Computer Vision
 
 
