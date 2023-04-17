@@ -20,9 +20,13 @@ from torchvision import datasets
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import transforms
-from torch.utils.tensorboard import SummaryWriter
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import f1_score,precision_score, recall_score, average_precision_score,precision_recall_curve
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import PrecisionRecallDisplay
 
 from torch.utils.data.sampler import BatchSampler
 from pytorch_metric_learning.utils.inference import FaissKNN
@@ -31,21 +35,40 @@ import umap.umap_ as umap
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 from pytorch_metric_learning.utils import accuracy_calculator
-
 import torch.nn.functional as F
-
 from PIL import Image
+import wandb
 
-
-# create a SummaryWriter object
-writer = SummaryWriter()
+log_wandb = False
+if log_wandb:
+    writer = wandb.init(
+        # Set the project where this run will be logged
+        project="w5",name = "150 epochs",
+        # Track hyperparameters and run metadata
+        config={
+            "epochs": 150,
+        })
 
 cuda = torch.cuda.is_available()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 batch_size = 64
 if device.type == "cuda":
     torch.cuda.get_device_name()
-    
+class TripletLoss(nn.Module):
+    """
+    Triplet loss
+    Takes embeddings of an anchor sample, a positive sample and a negative sample
+    """
+
+    def __init__(self, margin):
+        super(TripletLoss, self).__init__()
+        self.margin = margin
+
+    def forward(self, anchor, positive, negative, size_average=True):
+        distance_positive = (anchor - positive).pow(2).sum(1)  # .pow(.5)
+        distance_negative = (anchor - negative).pow(2).sum(1)  # .pow(.5)
+        losses = F.relu(distance_positive - distance_negative + self.margin)
+        return losses.mean() if size_average else losses.sum()
 class OnlineTripletLoss(nn.Module):
     """
     Online Triplets loss
@@ -293,8 +316,6 @@ val_dataset.test_data = torch.from_numpy(np.array([s[0].numpy() for s in val_dat
 inv_class_to_idx = {v: k for k, v in train_dataset.class_to_idx.items()}
 
 batch_size = 16
-
-# We'll create mini batches by sampling labels that will be present in the mini batch and number of examples from each class
 train_batch_sampler = BalancedBatchSampler(train_dataset.train_labels, n_classes=8, n_samples=25)
 test_batch_sampler = BalancedBatchSampler(val_dataset.test_labels, n_classes=8, n_samples=25)
 
@@ -414,10 +435,18 @@ def RandomNegativeTripletSelector(margin, cpu=False):
 # Set up the network and training parameters
 margin = 1.
 embedding_net = EmbeddingNet()
-model =embedding_net
+mining = False
+if mining:
+    model =embedding_net
+    loss_fn = OnlineTripletLoss(margin, RandomNegativeTripletSelector(margin))
+else:
+    model = TripletNet(embedding_net)
+    
+    loss_fn = TripletLoss(margin)
+    
+if log_wandb:wandb.watch(model)
 if cuda:
     model.cuda()
-loss_fn = OnlineTripletLoss(margin, RandomNegativeTripletSelector(margin))
 lr = 1e-3
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
 scheduler = lr_scheduler.StepLR(optimizer, 8, gamma=0.1, last_epoch=-1)
@@ -468,6 +497,8 @@ def fit(train_loader, val_loader, model, loss_fn, optimizer, scheduler, n_epochs
         # Train stage
         train_loss, metrics = train_epoch(train_loader, model, loss_fn, optimizer, cuda, log_interval, metrics)
         message = 'Epoch: {}/{}. Train set: Average loss: {:.4f}'.format(epoch + 1, n_epochs, train_loss)
+        
+        if log_wandb: writer.log({"train_loss": train_loss})
         for metric in metrics:
             message += '\t{}: {}'.format(metric.name(), metric.value())
 
@@ -476,6 +507,8 @@ def fit(train_loader, val_loader, model, loss_fn, optimizer, scheduler, n_epochs
 
         message += '\nEpoch: {}/{}. Validation set: Average loss: {:.4f}'.format(epoch + 1, n_epochs,
                                                                                  val_loss)
+                                                                                 
+        if log_wandb : writer.log({"val_loss": val_loss})
         for metric in metrics:
             message += '\t{}: {}'.format(metric.name(), metric.value())
 
@@ -591,11 +624,20 @@ class AverageNonzeroTripletsMetric(Metric):
 #mode = "plot_metrics"
 mode = "retrieval"
 if mode == "train":
-    fit(online_train_loader, online_test_loader, model, loss_fn, optimizer, scheduler, n_epochs, cuda, log_interval, metrics=[AverageNonzeroTripletsMetric()])
-    torch.save(model.state_dict(), 'triplet_150_epoch_mining.pth')
+    if mining:
+        fit(online_train_loader, online_test_loader, model, loss_fn, optimizer, scheduler, n_epochs, cuda, log_interval, metrics=[AverageNonzeroTripletsMetric()])
+    else:
+                
+        triplet_train_dataset = TripletDataset(train_dataset) # Returns pairs of images and target same/different
+        triplet_test_dataset = TripletDataset(val_dataset)
+
+        triplet_train_loader = torch.utils.data.DataLoader(triplet_train_dataset, batch_size=batch_size, shuffle=True)
+        triplet_test_loader = torch.utils.data.DataLoader(triplet_test_dataset, batch_size=batch_size, shuffle=False)
+        fit(triplet_train_loader, triplet_test_loader, model, loss_fn, optimizer, scheduler, n_epochs, cuda, log_interval)
+    torch.save(model.state_dict(), 'triplet_150_epoch2.pth')
 elif mode == "plot_metrics":
     epoch_str = "30"
-    model.load_state_dict(torch.load('triplet_30_epoch_mining.pth'))  # Load model weights
+    model.load_state_dict(torch.load('triplet_30_epoch.pth'))  # Load model weights
     model.eval()  # Set model to evaluation mode
     train_embeddings_cl, train_labels_cl = extract_embeddings(train_loader, model)
     plot_embeddings(train_embeddings_cl, train_labels_cl, title='Train embeddings', filename = "train_embed"+epoch_str)
@@ -620,152 +662,39 @@ elif mode == "plot_metrics":
     test_embeddings_umap = umap.UMAP().fit_transform(val_embeddings_cl)
     plot_embeddings(test_embeddings_umap, val_labels_cl, title='Test embeddings with UMAP',filename = "test_embed_UMAP"+epoch_str)
 
-    accuracy_calculator_1 = AccuracyCalculator(include=('mean_average_precision','precision_at_1'), k=1)
-    accuracies = accuracy_calculator_1.get_accuracy(
-        val_embeddings_cl, val_labels_cl, train_embeddings_cl, train_labels_cl, False
-    )
-    print('Test set accuracy (Precision@1) = {}'.format(accuracies['precision_at_1']))
-    print('Test set mean average precision (MAP@1) = {}'.format(accuracies['mean_average_precision']))
-    """
-    class YourCalculator(accuracy_calculator.AccuracyCalculator):
-        def calculate_precision_at_2(self, knn_labels, query_labels, **kwargs):
-            return accuracy_calculator.precision_at_k(knn_labels, query_labels[:, None], 2)
 
-        def calculate_fancy_mutual_info(self, query_labels, cluster_labels, **kwargs):
-            return 0
-
-        def requires_clustering(self):
-            return super().requires_clustering() + ["fancy_mutual_info"] 
-
-        def requires_knn(self):
-            return super().requires_knn() + ["precision_at_2"] 
-    calculator = YourCalculator()
-    acc_dict = calculator.get_accuracy(
-        val_embeddings_cl, val_labels_cl, train_embeddings_cl, train_labels_cl,
-    ref_includes_query=False)
-    
-    print(acc_dict)
-    class acc_calculator_precision_5(accuracy_calculator.AccuracyCalculator):
-        
-        def requires_knn(self):
-            return super().requires_knn() + ["precision_at_5"] 
-        def calculate_precision_at_5(self, knn_labels, query_labels, **kwargs):
-            return accuracy_calculator.precision_at_k(knn_labels, query_labels[:, None], 5)
-            
-    accuracy_calculator_5 = acc_calculator_precision_5()
-    accuracies_5 = accuracy_calculator_5.get_accuracy(
-        val_embeddings_cl, val_labels_cl, train_embeddings_cl, train_labels_cl, False
-    )"""
-    from sklearn.neighbors import KNeighborsClassifier
-    from sklearn.metrics import f1_score,precision_score, recall_score, average_precision_score,precision_recall_curve
-    from sklearn.preprocessing import label_binarize
-    from sklearn.metrics import PrecisionRecallDisplay
-    # storing the image representations
-    im_indices = []
-    im_representations = []
-    embeddings_indexed = []
-    labels_indexed = []
-
-    with torch.no_grad():
-        for batch_idx, (data, labels) in enumerate(train_loader):
-            data, labels = data.to(device), labels.to(device)
-            embeddings = model(data).cpu().numpy()
-            
-            for idx, (im, label) in enumerate(zip(data, labels)):
-                im = im.permute(0, 1, 2).cpu().numpy()[0]
-                label = label.cpu().numpy()
-                embedding = embeddings[idx]
-                im_indices.append(mnist_classes[label])
-                im_representations.append(im)
-                embeddings_indexed.append(embedding)
-                labels_indexed.append(label)
-                
-    embeddings_indexed = np.array(embeddings_indexed)
-    labels_indexed = np.array(labels_indexed)
-
-    knn = KNeighborsClassifier(n_neighbors=8).fit(embeddings_indexed, labels_indexed)
-
-        
-    curr_im_idx = 0
-    predicted = []
-    predicted_gt = []
-    with torch.no_grad():
-        for batch_idx, (data, labels) in enumerate(test_loader):
-            data, labels = data.to(device), labels.to(device)
-            embeddings = model(data).cpu().numpy()
-            
-            for idx, (im, label) in enumerate(zip(data, labels)):
-                im = im.permute(0, 1, 2).cpu().numpy()[0]
-                label = label.cpu().numpy()
-                embedding = embeddings[idx]           
-                
-                distances, neighboor_idxs = knn.kneighbors([embedding], n_neighbors=5, return_distance=True)
-                predicted_class = knn.predict([embedding])[0]
-                predicted.append(predicted_class)
-                predicted_gt.append(label)
-
-    predicted = np.array(predicted)
-    predicted_gt = np.array(predicted_gt)
-    
-    # Compute precision, recall, and average precision for each class
-    precision = precision_score(predicted_gt, predicted, average='weighted')
-    recall = recall_score(predicted_gt, predicted, average='weighted')
-    f1_score = f1_score(predicted_gt, predicted, average='weighted')
-
-    print("Precision", precision)
-    print("Recall ", recall)
-    print("F1 score ", f1_score)
-    #from https://scikit-learn.org/stable/auto_examples/model_selection/plot_precision_recall.html#sphx-glr-auto-examples-model-selection-plot-precision-recall-py
-    # Use label_binarize to be multi-label like settings
-    Y_test = label_binarize(predicted_gt, classes=[0, 1, 2,3,4,5,6,7])
-    y_score = label_binarize(predicted, classes=[0, 1, 2,3,4,5,6,7])
-    n_classes = Y_test.shape[1]
-    # For each class
-    precision = dict()
-    recall = dict()
-    average_precision = dict()
-    for i in range(n_classes):
-        precision[i], recall[i], _ = precision_recall_curve(Y_test[:, i], y_score[:, i])
-        average_precision[i] = average_precision_score(Y_test[:, i], y_score[:, i])
-
-    # A "micro-average": quantifying score on all classes jointly
-    precision["micro"], recall["micro"], _ = precision_recall_curve(
-        Y_test.ravel(), y_score.ravel()
-    )
-    average_precision["micro"] = average_precision_score(Y_test, y_score, average="micro")
-    display = PrecisionRecallDisplay(
-    recall=recall["micro"],
-    precision=precision["micro"],
-    average_precision=average_precision["micro"],
-    )
-    display.plot()
-    _ = display.ax_.set_title("Micro-averaged over all classes")
-    plt.savefig(epoch_str+"pr_curve.png")
-    
 elif mode=="retrieval":
     
-    model.load_state_dict(torch.load('triplet_150_epoch_mining.pth'))  # Load model weights
+    model.load_state_dict(torch.load('triplet_150_epoch.pth'))  # Load model weights
     model.eval()  # Set model to evaluation mode
     
     img_width = 256
     img_height = 256
     train_images = np.zeros((0, 3, img_height, img_width))
     val_images = np.zeros((0, 3, img_height, img_width))
+    
+    labels_train = []
+    labels_val = []
+    
+    val_features = np.zeros((0, 2))
     with torch.no_grad():
         model.eval()
         train_embeddings = np.zeros((len(train_loader.dataset), 2))
         labels = np.zeros(len(train_loader.dataset))
         k = 0
         for images, target in train_loader:
-            #print("images ", images)
             train_images = np.concatenate((train_images, images.detach().cpu().numpy()), axis=0)
 
-            #print("img list ",train_images)
             if cuda:
                 images = images.cuda()
             train_embeddings[k:k+len(images)] = model.get_embedding(images).data.cpu().numpy()
             labels[k:k+len(images)] = target.numpy()
+            
+            
+            labels_train.extend(target.detach().cpu().numpy().flatten().tolist())
+
             k += len(images)
+    count = 0
     with torch.no_grad():
         model.eval()
         val_embeddings = np.zeros((len(test_loader.dataset), 2))
@@ -779,25 +708,115 @@ elif mode=="retrieval":
             if cuda:
                 images = images.cuda()
             val_embeddings[k:k+len(images)] = model.get_embedding(images).data.cpu().numpy()
+            
+            outputs= model.get_embedding(images).data.cpu().numpy()
+            
+            n_samples = outputs.shape[0]
+            outputs_flat = outputs.reshape(n_samples, outputs.shape[1])
+            val_features = np.concatenate((val_features, outputs_flat), axis=0)
+            labels_val.extend(target.detach().cpu().numpy().flatten().tolist())
             labels[k:k+len(images)] = target.numpy()
             k += len(images)
-
+            count = count +1 
     k = 10 # number of neighbors
-    # knn = NearestNeighbors(n_neighbors=k, metric='cosine')
-    knn = NearestNeighbors(n_neighbors=k)
-    knn.fit(train_embeddings)
+    knn = KNeighborsClassifier(n_neighbors=k)
+    
+    labels_train = np.array(labels_train)
+    labels_val = np.array(labels_val)
+
+    val_targets = labels_val
+    train_targets = labels_train
+
+    knn.fit(train_embeddings,train_targets)
     distances, indices = knn.kneighbors(val_embeddings)
+    
+
     print('Retrieved images:', indices)
 
+    
+    class_names = train_dataset.classes
     fig, ax = plt.subplots(4, 6, figsize=(10, 10), dpi=200)
     for i in range (0,4):
         ax[i][0].imshow(np.moveaxis(val_images[i], 0, -1))
         ax[i][0].set_xticks([])
         ax[i][0].set_yticks([])
+        class_name = class_names[labels_val[i]]
+        ax[i][0].set_title("Test img:\n" + class_name, fontsize=9)
         for j in range (0,5):
             ax[i][j+1].imshow(np.moveaxis(train_images[indices[i,j]], 0, -1))
             ax[i][j+1].set_xticks([])
             ax[i][j+1].set_yticks([])
+            class_name = class_names[labels_train[indices[i][j]]]
+            ax[i][j+1].set_title("Retrieved img:\n" + class_name, fontsize=9)
     fig.tight_layout()
-    plt.savefig('retrieval_c.png')
-    fig.tight_layout()
+    plt.savefig('retrieval_cnew2.png')
+    plt.close()
+
+    # Compute the evaluation metrics
+    APs = []
+    Precisions_at_1 = []
+    Precisions_at_5 = []
+    #val_features = val_embeddings
+    train_features = train_embeddings
+    # Compute MAP
+    # Convert integer targets to binary targets
+    
+    binary_val_targets = np.zeros((val_features.shape[0], 8))
+    binary_val_targets[np.arange(val_features.shape[0]), val_targets] = 1
+
+    binary_train_targets = np.zeros((val_features.shape[0], 8))
+
+    binary_train_targets[np.arange(val_features.shape[0])[:,None], train_targets[indices]] = 1
+
+    # Compute average precision 
+    for i in range(val_features.shape[0]):
+        AP = average_precision_score(binary_val_targets[i], binary_train_targets[i])
+        APs.append(AP)
+
+    MAP = np.mean(APs)
+
+    for i, (dists, idxs, target) in enumerate(zip(distances, indices, val_targets)):
+        # Compute the precision at 1
+        if train_targets[idxs[0]] == target:
+            Precisions_at_1.append(1.0)
+        else:
+            Precisions_at_1.append(0.0)
+
+        # Compute the precision at 5
+        Precisions_at_5 = []
+        for idx, target in zip(indices, val_targets):
+            hits = np.isin(train_targets[idx][:5], target)
+            precision_at_5 = np.sum(hits) / 5.0
+            Precisions_at_5.append(precision_at_5)
+
+    # Compute the precision at 1 and precision at 5
+    Prec_1 = np.mean(Precisions_at_1)
+    Prec_5 = np.mean(Precisions_at_5)
+    print('MAP:', MAP)
+    print('Prec@1:', Prec_1)
+    print('Prec@5:', Prec_5)
+
+    # Compute Precision Recall curve for Image Retrieval
+    val_prob = knn.predict_proba(val_embeddings)
+    fig, ax = plt.subplots(1, 1, figsize=(10,10), dpi=150)
+    ax.set_title("Precision-Recall curve", size=16)
+    for class_id, class_name in enumerate(class_names):
+        PrecisionRecallDisplay.from_predictions(np.where(val_targets==class_id, 1, 0),
+                                                val_prob[:, class_id],
+                                                ax=ax, name=class_name)
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.legend(loc='lower left')
+    plt.savefig("pr_curve_c_cool.png")
+    #####
+    fig, ax = plt.subplots(1, 1, figsize=(10,10), dpi=200)
+    ax.set_title("Precision-Recall curve", size=16)
+    for class_id, class_name in enumerate(class_names):
+        PrecisionRecallDisplay.from_predictions(np.where(val_targets==class_id, 1, 0),
+                                                np.where(train_targets[indices][:, 0]==class_id, 1, 0),
+                                                ax=ax, name=class_name)
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.legend(loc='lower left')
+    plt.savefig('pr_c.png')
+    sys.exit()
