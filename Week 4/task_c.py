@@ -759,8 +759,8 @@ elif mode=="retrieval":
     #val_features = val_embeddings
     train_features = train_embeddings
     # Compute MAP
-    # Convert integer targets to binary targets
-    
+
+    # Convert integer targets to binary targets    
     binary_val_targets = np.zeros((val_features.shape[0], 8))
     binary_val_targets[np.arange(val_features.shape[0]), val_targets] = 1
 
