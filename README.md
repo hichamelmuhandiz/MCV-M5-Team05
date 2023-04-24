@@ -21,3 +21,4 @@ Team 5 repository for M5 subject in MCV
 * Week 3: https://docs.google.com/presentation/d/1yZEqCrYbmWvHVy0_-91DtHecdDfRBiRVNZG1OKT8wS8/edit?usp=sharing
 * Week 4: https://docs.google.com/presentation/d/1zxF5JpwtOFZiiBtbA4qn3cQUCbe_NzZa6BngyKlrVGs/edit?usp=sharing
 * Week 5: https://docs.google.com/presentation/d/1kd45YIhstwQxbIgP2ksW6hN1Cbyd9C8eZe6wE9WCwxI/edit?usp=sharing
+* Final presentation: https://docs.google.com/presentation/d/1Dvl24hSwEWKhYTnEIKIQ_8rmuF8lTTiUOkBGJNAHHqI/edit
